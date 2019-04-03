@@ -1,0 +1,64 @@
+---
+title: "Hard Exercises Chapter 6"
+output: html_notebook
+---
+All practice problems to follow use the same data. Pull out the old Howell !Kung demography data and split it into two equally sized data frames. Here’s the code to do it:
+```{r}
+library(rethinking)
+data(Howell1)
+d <- Howell1
+d$age <- (d$age - mean(d$age))/sd(d$age)
+set.seed( 1000 )
+i <- sample(1:nrow(d),size=nrow(d)/2)
+d1<-d[i,]
+d2<-d[-i,]
+```
+
+You now have two randomly formed data frames, each with 272 rows. The notion here is to use the cases in d1 to fit models and the cases in d2 to evaluate them. The set.seed command just ensures that everyone works with the same randomly shuffled data. Now let h i and x i be the height and centered age values, respectively, on row i . Fit the models to the data in d1.
+Use map to fit these. Use weakly regularizing priors for all parameters. Note that fitting all of these polynomials to the height-by-age relationship is not a good way to derive insight. It would be better to have a simpler approach that would allow for more insight, like perhaps a piecewise linear model. But the set of polynomial families above will serve to help you practice and understand model comparison and averaging. 
+```{r}
+
+```
+
+### 6H1
+Compare the models above, using WAIC. Compare the model rankings, as well as the WAIC weights.
+```{r}
+
+```
+
+### 6H2
+For each model, produce a plot with model averaged mean and 97% confidence interval of the mean,superimposedontherawdata.Howdopredictionsdifferacrossmodels?
+```{r}
+
+```
+
+### 6H3
+Now also plot the model averaged predictions, across all models. In what ways do the averaged predictionsdifferfromthepredictionsofthemodelwiththelowestWAICvalue?
+```{r}
+
+```
+
+### 6H4
+Compute the test-sample deviance for each model. This means calculating deviance, but using the data in d2 now. You can compute the log-likelihood of the height data with: sum( dnorm( d2$height , mu , sigma , log=TRUE ) ) where mu is a vector of predicted means (based upon age values and MAP parameters) and sigma is the MAP standard deviation.
+```{r}
+
+```
+
+### 6H5
+Compare the deviances from 6H4 to the WAIC values. It might be easier to compare if you subtract the smallest value in each list from the others. For example, subtract the minimum WAIC from all of the WAIC values so that the best WAIC is normalized to zero. Which model makes the best out-of-samplepredictionsinthiscase?DoesWAICdoagoodjobofestimatingthetestdeviance?
+```{r}
+
+```
+
+### 6H6
+Consider the following model:
+and assume flat (or nearly flat) priors on and . This model contains more strongly regularizing priors on the coefficients. First, fit this model to the data in d1 . Report the MAP estimates and plot the implied predictions. T hen compute the out-of-sample deviance using the data in d2 , using MAP estimates from the model f it to d1 only. How does this model, using regularizing priors, compare to the best WAIC model from earlier?Howdoyouinterpretthisresult?
+```{r}
+
+```
+
+```{r}
+sessionInfo()
+```
+
+
