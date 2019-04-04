@@ -17,46 +17,262 @@ d2<-d[-i,]
 You now have two randomly formed data frames, each with 272 rows. The notion here is to use the cases in d1 to fit models and the cases in d2 to evaluate them. The set.seed command just ensures that everyone works with the same randomly shuffled data. Now let h i and x i be the height and centered age values, respectively, on row i . Fit the models to the data in d1.
 Use map to fit these. Use weakly regularizing priors for all parameters. Note that fitting all of these polynomials to the height-by-age relationship is not a good way to derive insight. It would be better to have a simpler approach that would allow for more insight, like perhaps a piecewise linear model. But the set of polynomial families above will serve to help you practice and understand model comparison and averaging. 
 ```{r}
-
+m6.h1 <- map(
+  alist(
+    height ~ dnorm(mu, sigma),
+    mu <- a + b1 * age,
+    a ~ dnorm(140, 30),
+    b1 ~ dnorm(0, 50), 
+    sigma ~ dnorm(30, 10)
+  ),
+  data = d1
+)
+m6.h2 <- map(
+  alist(
+    height ~ dnorm(mu, sigma),
+    mu <- a + b1 * age + b2 * I(age^2),
+    a ~ dnorm(140, 30),
+    b1 ~ dnorm(0, 50), 
+    b2 ~ dnorm(0, 50),
+    sigma ~ dnorm(30, 10)
+  ),
+  data = d1
+)
+m6.h3 <- map(
+  alist(
+    height ~ dnorm(mu, sigma),
+    mu <- a + b1 * age + b2 * I(age^2) + b3 * I(age^3),
+    a ~ dnorm(140, 30),
+    b1 ~ dnorm(0, 50),
+    b2 ~ dnorm(0, 50),
+    b3 ~ dnorm(0, 50),
+    sigma ~ dnorm(30, 10)
+  ),
+  data = d1
+)
+m6.h4 <- map(
+  alist(
+    height ~ dnorm(mu, sigma),
+    mu <- a + b1 * age + b2 * I(age^2) + b3 * I(age^3) + b4 * I(age^4),
+    a ~ dnorm(140, 30),
+    b1 ~ dnorm(0, 50), 
+    b2 ~ dnorm(0, 50),
+    b3 ~ dnorm(0, 50),
+    b4 ~ dnorm(0, 50),
+    sigma ~ dnorm(30, 10)
+  ),
+  data = d1
+)
+m6.h5 <- map(
+  alist(
+    height ~ dnorm(mu, sigma),
+    mu <- a + b1 * age + b2 * I(age^2) + b3 * I(age^3) + b4 * I(age^4) + b5 * I(age^5),
+    a ~ dnorm(140, 30),
+    b1 ~ dnorm(0, 50), 
+    b2 ~ dnorm(0, 50),
+    b3 ~ dnorm(0, 50),
+    b4 ~ dnorm(0, 50),
+    b5 ~ dnorm(0, 50),
+    sigma ~ dnorm(30, 10)
+  ),
+  data = d1
+)
+m6.h6 <- map(
+  alist(
+    height ~ dnorm(mu, sigma),
+    mu <- a + b1 * age + b2 * I(age^2) + b3 * I(age^3) + b4 * I(age^4) + b5 * I(age^5) + b6 * I(age^6),
+    a ~ dnorm(140, 30),
+    b1 ~ dnorm(0, 50), 
+    b2 ~ dnorm(0, 50),
+    b3 ~ dnorm(0, 50),
+    b4 ~ dnorm(0, 50),
+    b5 ~ dnorm(0, 50),
+    b6 ~ dnorm(0, 50),
+    sigma ~ dnorm(30, 10)
+  ),
+  data = d1
+)
 ```
 
 ### 6H1
 Compare the models above, using WAIC. Compare the model rankings, as well as the WAIC weights.
 ```{r}
-
+(comparison <- compare(m6.h1, m6.h2, m6.h3, m6.h4, m6.h5, m6.h6, refresh = 0))
+plot(comparison)
 ```
 
 ### 6H2
-For each model, produce a plot with model averaged mean and 97% confidence interval of the mean,superimposedontherawdata.Howdopredictionsdifferacrossmodels?
+For each model, produce a plot with model averaged mean and 97% confidence interval of the mean, superimposed on the raw data. How do predictions differ across models?
 ```{r}
+age.seq <- seq(from = -2.0, to = 4.0, length.out = 30)
+d.predict <- list(
+  height = rep(0, 30),
+  age = age.seq
+)
 
+age_plot <- function(model, d1, d.predict) {
+  pred <- link(model, data = d.predict, refresh = 0)
+  mu <- apply(pred, 2, mean)
+  mu.PI <- apply(pred, 2, PI, prob = 0.97)
+  plot(height ~ age, d1, col = rangi2)
+  lines(d.predict$age, mu)
+  shade(mu.PI, d.predict$age)
+}
+```
+```{r}
+age_plot(m6.h1, d1, d.predict)
+age_plot(m6.h2, d1, d.predict)
+age_plot(m6.h3, d1, d.predict)
+age_plot(m6.h4, d1, d.predict)
+age_plot(m6.h5, d1, d.predict)
+age_plot(m6.h6, d1, d.predict)
 ```
 
 ### 6H3
-Now also plot the model averaged predictions, across all models. In what ways do the averaged predictionsdifferfromthepredictionsofthemodelwiththelowestWAICvalue?
+Now also plot the model averaged predictions, across all models. In what ways do the averaged predictions differ from the predictions of the model with the lowest WAIC value?
 ```{r}
+# Plot the lowest WAIC model with dashed lines
+pred_m6.h4 <- link(m6.h4, data = d.predict, refresh = 0)
+mu <- apply(pred_m6.h4, 2, mean)
+mu.PI <- apply(pred_m6.h4, 2, PI, prob = 0.97)
+plot(height ~ age, d1, col = rangi2)
+lines(age.seq, mu, lty = 2)
 
+lines(age.seq, mu.PI[1, ], lty = 2)
+lines(age.seq, mu.PI[2, ], lty = 2)
+
+# Calculate and plot model averaged predictions
+height.ensemble <- ensemble(m6.h1, m6.h2, m6.h3, m6.h4, m6.h5, m6.h6, data = d.predict, refresh = 0)
+mu <- apply(height.ensemble$link, 2, mean)
+mu.PI <- apply(height.ensemble$link, 2, PI, prob = 0.97)
+lines(age.seq, mu)
+shade(mu.PI, age.seq)
 ```
 
 ### 6H4
-Compute the test-sample deviance for each model. This means calculating deviance, but using the data in d2 now. You can compute the log-likelihood of the height data with: sum( dnorm( d2$height , mu , sigma , log=TRUE ) ) where mu is a vector of predicted means (based upon age values and MAP parameters) and sigma is the MAP standard deviation.
-```{r}
+Compute the test-sample deviance for each model. This means calculating deviance, but using the data in d2 now. You can compute the log-likelihood of the height data with: 
+sum( dnorm( d2$height , mu , sigma , log=TRUE ) ) 
+where mu is a vector of predicted means (based upon age values and MAP parameters) and sigma is the MAP standard deviation.
 
+We can use the approach on page 183 to compute the test-sample deviance. The important intuitions here are that we need to calculate mu for each observation in d2 and then multiply the resulting log-likelihood by -2.
+```{r}
+# M1
+theta <- coef(m6.h1)
+(m6.h1.d <- -2 * sum(
+  dnorm(
+    x = d2$height, 
+    mean = theta[1] + theta[2]*d2$age,
+    sd = theta[3], 
+    log = TRUE
+  )
+))
+# M2 
+theta <- coef(m6.h2)
+(m6.h2.d <- -2 * sum(
+  dnorm(
+    x = d2$height, 
+    mean = theta[1] + theta[2]*d2$age + theta[3]*d2$age^2,
+    sd = theta[4],
+    log = TRUE
+  )
+))
+# M3 
+theta <- coef(m6.h3)
+(m6.h3.d <- -2 * sum(
+  dnorm(
+    x = d2$height, 
+    mean = theta[1] + theta[2]*d2$age + theta[3]*d2$age^2 + theta[4]*d2$age^3,
+    sd = theta[5],
+    log = TRUE
+  )
+))
+# M4
+theta <- coef(m6.h4)
+(m6.h4.d <- -2 * sum(
+  dnorm(
+    x = d2$height, 
+    mean = theta[1] + theta[2]*d2$age + theta[3]*d2$age^2 + theta[4]*d2$age^3 + theta[5]*d2$age^4,
+    sd = theta[6],
+    log = TRUE
+  )
+))
+# M5
+theta <- coef(m6.h5)
+(m6.h5.d <- -2 * sum(
+  dnorm(
+    x = d2$height, 
+    mean = theta[1] + theta[2]*d2$age + theta[3]*d2$age^2 + theta[4]*d2$age^3 + theta[5]*d2$age^4 +
+      theta[6]*d2$age^5,
+    sd = theta[7],
+    log = TRUE
+  )
+))
+# M6
+theta <- coef(m6.h6)
+(m6.h6.d <- -2 * sum(
+  dnorm(
+    x = d2$height, 
+    mean = theta[1] + theta[2]*d2$age + theta[3]*d2$age^2 + theta[4]*d2$age^3 + theta[5]*d2$age^4 +
+      theta[6]*d2$age^5 + theta[7]*d2$age^6,
+    sd = theta[8],
+    log = TRUE
+  )
+))
 ```
 
 ### 6H5
-Compare the deviances from 6H4 to the WAIC values. It might be easier to compare if you subtract the smallest value in each list from the others. For example, subtract the minimum WAIC from all of the WAIC values so that the best WAIC is normalized to zero. Which model makes the best out-of-samplepredictionsinthiscase?DoesWAICdoagoodjobofestimatingthetestdeviance?
+Compare the deviances from 6H4 to the WAIC values. It might be easier to compare if you subtract the smallest value in each list from the others. For example, subtract the minimum WAIC from all of the WAIC values so that the best WAIC is normalized to zero. Which model makes the best out-of-sample predictions in this case? Does WAIC do a good job of estimating the test deviance?
 ```{r}
-
+model.stats <- data.frame(
+  Model = c("M6.h1", "M6.h2", "M6.h3", "M6.h4", "M6.h5", "M6.h6"),
+  TestDeviance = c(m6.h1.d, m6.h2.d, m6.h3.d, m6.h4.d, m6.h5.d, m6.h6.d),
+  WAIC = c(WAIC(m6.h1, refresh = 0), WAIC(m6.h2, refresh = 0), WAIC(m6.h3, refresh = 0), WAIC(m6.h4, refresh = 0), WAIC(m6.h5, refresh = 0), WAIC(m6.h6, refresh = 0))
+)
+model.stats$TestDeviance_Relative <- model.stats$TestDeviance - min(model.stats$TestDeviance)
+model.stats$WAIC_Relative <- model.stats$WAIC - min(model.stats$WAIC)
+model.stats
 ```
+M6.h4 makes the best out-of-sample predictions as well as in-sample predictions. The ranking of models is also very similar by both WAIC and out-of-sample deviance. The only differences in ranking were swapping M5 and M6, although both were similar in magnitude. In this case, WAIC did a good job of estimating test deviance, although it tended to underestimate deviance for poorly fitting models. It’s also worth noting that we assigned observations to train and test sets randomly, which increases the likelihood that they are representative of one another.
 
 ### 6H6
 Consider the following model:
-and assume flat (or nearly flat) priors on and . This model contains more strongly regularizing priors on the coefficients. First, fit this model to the data in d1 . Report the MAP estimates and plot the implied predictions. T hen compute the out-of-sample deviance using the data in d2 , using MAP estimates from the model f it to d1 only. How does this model, using regularizing priors, compare to the best WAIC model from earlier?Howdoyouinterpretthisresult?
+and assume flat (or nearly flat) priors on and . This model contains more strongly regularizing priors on the coefficients. First, fit this model to the data in d1 . Report the MAP estimates and plot the implied predictions. T hen compute the out-of-sample deviance using the data in d2 , using MAP estimates from the model f it to d1 only. How does this model, using regularizing priors, compare to the best WAIC model from earlier? How do you interpret this result?
 ```{r}
-
+m6.h7 <- map(
+  alist(
+    height ~ dnorm(mu, sigma),
+    mu <- a + b1*age + b2*I(age^2) + b3*I(age^3) + b4*I(age^4) + b5*I(age^5) + b6*I(age^6),
+    a ~ dunif(50, 200),
+    b1 ~ dnorm(0, 5),
+    b2 ~ dnorm(0, 5),
+    b3 ~ dnorm(0, 5),
+    b4 ~ dnorm(0, 5),
+    b5 ~ dnorm(0, 5),
+    b6 ~ dnorm(0, 5),
+    sigma ~ dunif(0, 100)
+  ),
+  data = d1
+)
+precis(m6.h7)
 ```
-
+```{r}
+age_plot(m6.h7, d1, d.predict)
+```
+Test deviance:
+```{r}
+theta <- coef(m6.h7)
+(m6.h7.d <- -2 * sum(
+  dnorm(
+    x = d2$height, 
+    mean = theta[1] + theta[2]*d2$age + theta[3]*d2$age^2 + theta[4]*d2$age^3 + theta[5]*d2$age^4 +
+      theta[6]*d2$age^5 + theta[7]*d2$age^6,
+    sd = theta[8],
+    log = TRUE
+  )
+))
+m6.h7.d - m6.h4.d
+```
+Adding weak information to the fifth and sixth order poly terms, but very imprecise (large SD)
 ```{r}
 sessionInfo()
 ```
