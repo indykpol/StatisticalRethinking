@@ -254,6 +254,8 @@ m6.h7 <- map(
   data = d1
 )
 precis(m6.h7)
+precis(m6.h4)
+plot(compare(m6.h4, m6.h7, refresh = 0))
 ```
 ```{r}
 age_plot(m6.h7, d1, d.predict)
