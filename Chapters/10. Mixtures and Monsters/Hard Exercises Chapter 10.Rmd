@@ -1,0 +1,540 @@
+---
+title: "Hard Exercises Chapter 10"
+output: html_notebook
+---
+
+```{r}
+library(rethinking)
+```
+
+### 11H1.
+In 2014, a paper was published that was entitled “Female hurricanes are deadlier than male hurricanes.” 153 As the title suggests, the paper claimed that hurricanes with female names have caused greater loss of life, and the explanation given is that people unconsciously rate female hurricanes as less dangerous and so are less likely to evacuate.
+Statisticians severely criticized the paper after publication. Here, you’ll explore the complete data used in the paper and consider the hypothesis that hurricanes with female names are deadlier. Load the data with R.
+Acquaint yourself with the columns by inspecting the help ?Hurricanes.
+In this problem, you’ll focus on predicting deaths using femininity of each hurricane’s name. Fit and interpret the simplest possible model, a Poisson model of deaths using femininity as a predictor. You can use map or map2stan . Compare the model to an intercept-only Poisson model of deaths. How strong is the association between femininity of name and deaths? Which storms does the modelfit (retrodict) well? Which storms does it fit poorly?
+```{r}
+data(Hurricanes)
+?Hurricanes
+d <- Hurricanes
+str(d)
+```
+```{r}
+library(ggplot2)
+ggplot(d, aes(as.factor(female), femininity)) + geom_boxplot() + theme_bw()
+ggplot(d, aes(as.factor(female), deaths)) + geom_violin() + theme_bw()
+ggplot(d, aes(femininity, deaths))+geom_point() + geom_smooth() + theme_bw()
+```
+Visual exploration shows that there is a bunch of "outliers" among female cases, but as with UCBadmit data there could be a confounding variable.
+```{r}
+m11h1.base <- map(alist(
+  deaths ~ dpois(lambda),
+  log(lambda) ~ a ,
+  a ~ dnorm(0, 10)
+),
+data=d
+)
+precis(m11h1.base)
+
+m11h1.fem <- map(alist(
+  deaths ~ dpois(lambda),
+  log(lambda) ~ a + b_fem*femininity,
+  b_fem ~ dnorm(0, 10),
+  a ~ dnorm(0, 10)
+),
+data=d
+)
+precis(m11h1.fem) #b_fem = 0.07
+exp(0.07) # 1.07
+coef <- extract.samples(m11h1.fem)
+dens(coef) #coefficient is strongly positive
+```
+
+```{r}
+(cmp <- compare(m11h1.base, m11h1.fem))
+plot(cmp)
+plot(coeftab(m11h1.base, m11h1.fem))
+```
+According to WAIC comparison model with femininity is better and take all the score, but the dispersion of the difference and SE of WAIC itself is huge.
+The difference is less than standard error of the difference. 
+
+```{r}
+postcheck(m11h1.fem, window = 100)
+abline(h=40, col='red')
+abline(h=10, col='blue')
+abline(h=mean(d$deaths), lty=2)
+```
+Visual exploration shows that model significantly underestimates deaths for hurricanes with a number of deaths greater than 40 and overestimates counts for cases with a number of death less than 10.
+Model is good at predicting number of deaths for hurricanes with target variable close to the average across the sample.
+Because model contains only a single variable, we can draw counter factual plot to illustrate dependency.
+```{r}
+d.predict <- data.frame(femininity=seq(1,11,0.1))
+lambda.sample <- link(m11h1.fem, d.predict)
+lambda.avg <- apply(lambda.sample, 2, mean )
+lambda.pi <- apply(lambda.sample, 2, PI )
+
+# predict actual counts
+count.sample <- sim(m11h1.fem, data = d.predict)
+count.avg <- apply(count.sample, 2, mean )
+count.pi <- apply(count.sample, 2, PI )
+
+#plot
+plot(d$femininity, d$deaths, xlim=c(0,12), col='blue', pch=16)
+lines(d.predict$femininity, lambda.avg)
+shade(lambda.pi, d.predict$femininity) #gives very narrow shade
+
+lines(d.predict$femininity, count.avg, col='red')
+shade(count.pi, d.predict$femininity) #shade of counts predictions
+```
+In summary, intuitively there is some hidden variable that better explains deaths.  
+Visually relation induced by the model looks suspicious for me because it looks like being caused by several outliers.
+
+### 11H2. 
+Counts are nearly always over-dispersed relative to Poisson. So fit a gamma-Poisson (aka negative-binomial) model to predict deaths using femininity. Show that the over-dispersed model no longer shows as precise a positive association between femininity and deaths, with an 89% interval that overlaps zero. Can you explain why the association diminished in strength?
+```{r}
+m11h1.fem.gamma <- map(alist(
+  deaths ~ dgampois(mu, theta),
+  log(mu) ~ a + b_fem*femininity,
+  b_fem ~ dnorm(0, 10),
+  a ~ dnorm(0, 10),
+  theta ~ dexp(1)
+),
+data=d
+)
+precis(m11h1.fem.gamma)
+```
+Now b_fem is centered around zero, so looks like no correlation with deaths.
+```{r}
+postcheck(m11h1.fem.gamma, window = 100)
+```
+These intervals cover actual counts for almost all cases, except 8 cases with the number of deaths greater than 50. Also all predictions are nearly the same and are close to the average of the sample.
+Overdispersed model, as expected, has a wide interval for predictions of counts. 
+```{r}
+## anothe plot of femininity vs deaths
+lambda.sample <- link(m11h1.fem.gamma, d.predict)
+lambda.avg <- apply(lambda.sample, 2, mean )
+lambda.pi <- apply(lambda.sample, 2, PI )
+
+# predict actual counts
+count.sample <- sim(m11h1.fem, data = d.predict)
+count.avg <- apply(count.sample, 2, mean )
+count.pi <- apply(count.sample, 2, PI )
+
+#plot
+plot(d$femininity, d$deaths, xlim=c(0,12), col='blue', pch=16)
+lines(d.predict$femininity, lambda.avg)
+shade(lambda.pi, d.predict$femininity) #gives very narrow shade
+
+lines(d.predict$femininity, count.avg, col='red')
+shade(count.pi, d.predict$femininity) #shade of counts predictions
+```
+
+
+### 11H3. 
+In order to infer a strong association between deaths and femininity, it’s necessary to include an interaction effect. In the data, there are two measures of a hurricane’s potential to cause death: damage_norm and min_pressure . Consult ?Hurricanes for their meanings. It makes some sense to imagine that femininity of a name matters more when the hurricane is itself deadly. This implies an interaction between femininity and either or both of damage_norm and min_pressure . Fit a series of models evaluating these interactions. Interpret and compare the models. In interpreting the estimates, it may help to generate counterfactual predictions contrasting hurricanes with masculine and feminine names. Are the effect sizes plausible?
+```{r}
+normalise <- function(x){
+  (x-mean(x))/sd(x)
+}
+
+d$damage_norm_c <- normalise(d$damage_norm)
+d$femininity_c <- normalise(d$femininity)
+d$min_pressure_c <- normalise(d$min_pressure)
+
+m11h3 <- map(alist(
+  deaths ~ dpois(mu),
+  log(mu) ~ a + b_fem*femininity_c + b_dam*damage_norm_c + b_mp*min_pressure_c,
+  c(b_fem,b_dam,b_mp) ~ dnorm(0, 2),
+  a ~ dnorm(0, 10)
+),
+data=d
+)
+precis(m11h3)
+postcheck(m11h3, window = 100)
+```
+```{r}
+m11h3.fxd <- map(alist(
+  deaths ~ dpois(mu),
+  log(mu) ~ a + b_fem*femininity_c + b_dam*damage_norm_c + b_mp*min_pressure_c +
+                b_fem_dam*femininity_c*damage_norm_c,
+  c(b_fem,b_dam,b_mp,b_fem_dam) ~ dnorm(0, 2),
+  a ~ dnorm(0, 10)
+),
+data=d
+)
+precis(m11h3.fxd)
+postcheck(m11h3.fxd, window = 100)
+pairs(m11h3.fxd)
+```
+```{r}
+m11h3.fxmp <- map(alist(
+  deaths ~ dpois(mu),
+  log(mu) ~ a + b_fem*femininity_c + b_dam*damage_norm_c + b_mp*min_pressure_c +
+    b_fem_mp*femininity_c*min_pressure_c,
+  c(b_fem,b_dam,b_mp,b_fem_mp) ~ dnorm(0, 2),
+  a ~ dnorm(0, 10)
+),
+data=d
+)
+precis(m11h3.fxmp)
+postcheck(m11h3.fxmp, window = 100)
+pairs(m11h3.fxmp)
+```
+```{r}
+m11h3.fxd.fxmp <- map(alist(
+  deaths ~ dpois(mu),
+  log(mu) ~ a + b_fem*femininity_c + b_dam*damage_norm_c + b_mp*min_pressure_c +
+    b_fem_mp*femininity_c*min_pressure_c + b_fem_dam*femininity_c*damage_norm_c,
+  c(b_fem,b_dam,b_mp,b_fem_dam,b_fem_mp) ~ dnorm(0, 2),
+  a ~ dnorm(0, 10)
+),
+data=d
+)
+precis(m11h3.fxd.fxmp)
+postcheck(m11h3.fxd.fxmp, window = 100)
+pairs(m11h3.fxd.fxmp)
+```
+```{r}
+m11h3.no.fem <- map(alist(
+  deaths ~ dpois(mu),
+  log(mu) ~ a +  b_dam*damage_norm_c + b_mp*min_pressure_c,
+  c(b_dam,b_mp) ~ dnorm(0, 2),
+  a ~ dnorm(0, 10)
+),
+data=d
+)
+
+m11h3.no.mp <- map(alist(
+  deaths ~ dpois(mu),
+  log(mu) ~ a + b_fem*femininity_c + b_dam*damage_norm_c,
+  c(b_fem,b_dam) ~ dnorm(0, 2),
+  a ~ dnorm(0, 10)
+),
+data=d
+)
+
+m11h3.fxd.only <- map(alist(
+  deaths ~ dpois(mu),
+  log(mu) ~ a + b_fem_dam*femininity_c*damage_norm_c,
+  c(b_fem_dam) ~ dnorm(0, 2),
+  a ~ dnorm(0, 10)
+),
+data=d
+)
+
+cmp <- compare(m11h3, m11h3.fxd, m11h3.fxmp, m11h3.fxd.fxmp, m11h3.no.fem, m11h3.no.mp, m11h3.fxd.only)
+cmp
+plot(cmp)
+```
+Best model according to the WAIC comparison changes across runs. So it is hard to distinguish which one of models m11h3.fxd or m11h3 is better.
+Thus adding interaction of damage vs feminity doesn't improve inference a lot. 
+Removing femininity variable from the model increases WAIC, but it is still within single SD of the WAIC difference between models.
+It's interesting that removing min_pressure_c variable produces results comparable to the best model, but with huge SD of difference.
+
+### 11H4. 
+In the original hurricanes paper, storm damage ( damage_norm ) was used directly. This assumption implies that mortality increases exponentially with a linear increase in storm strength, because a Poisson regression uses a log link. So it’s worth exploring an alternative hypothesis: that the logarithm of storm strength is what matters. Explore this by using the logarithm of damage_norm as a predictor. Using the best model structure from the previous problem, compare a model that uses log(damage_norm) to a model that uses damage_norm directly. Compare their DIC/WAIC values as well as their implied predictions. What do you conclude?
+```{r}
+d$log_damage_norm_c <- normalise(log(d$damage_norm))
+m11h3.logd <- map(alist(
+  deaths ~ dpois(mu),
+  log(mu) ~ a + b_fem*femininity_c + b_dam*log_damage_norm_c + b_mp*min_pressure_c,
+  c(b_fem,b_dam,b_mp) ~ dnorm(0, 2),
+  a ~ dnorm(0, 10)
+),
+data=d
+)
+precis(m11h3.logd)
+par(mfrow=c(1,1))
+postcheck(m11h3.logd, window = 100)
+```
+```{r}
+m11h3.logd.fxd <- map(alist(
+  deaths ~ dpois(mu),
+  log(mu) ~ a  + b_dam*log_damage_norm_c  + b_fem*femininity_c +     b_fem_dam*femininity_c*log_damage_norm_c,
+  c(b_fem,b_dam,b_fem_dam) ~ dnorm(0, 2),
+  a ~ dnorm(0, 10)
+),
+data=d
+)
+precis(m11h3.logd.fxd)
+postcheck(m11h3.logd.fxd, window = 100)
+```
+b_fem becomes zero, but b_fem_dam - not
+```{r}
+(cmp <- compare(m11h3, m11h3.logd, m11h3.logd.fxd, m11h3.fxd))
+plot(cmp)
+plot(coeftab(m11h3, m11h3.logd, m11h3.logd.fxd, m11h3.fxd))
+```
+m11h3.logd.fxd is the winner
+```{r}
+model <- m11h3.logd.fxd
+log_damage_seq <- seq(-3.1, 2, 0.1)
+d.predict.male <- data.frame(
+  femininity_c=-1.3,
+  log_damage_norm_c=log_damage_seq,
+  min_pressure_c=0
+)
+d.predict.female <- data.frame(
+  femininity_c=1,
+  log_damage_norm_c=log_damage_seq,
+  min_pressure_c=0
+)
+predict_lambda_counts <- function(model, data){
+  lambda.sample <- link(model, data = data)
+  lambda.avg <- apply(lambda.sample, 2, mean )
+  lambda.pi <- apply(lambda.sample, 2, PI )
+  
+  count.sample <- sim(model, data = data)
+  count.avg <- apply(count.sample, 2, mean )
+  count.pi <- apply(count.sample, 2, PI )
+  
+  list(
+    l_avg=lambda.avg,
+    l_pi=lambda.pi,
+    cnt_avg=count.avg,
+    cnt_pi=count.pi
+  )
+}
+plot_lambda_cnt <- function(x, pred, color_name) {
+  lines(x, pred$l_avg, col=color_name)
+  shade(pred$l_pi, x) 
+  
+  lines(x, pred$cnt_avg, col=color_name, lty=2)
+  shade(pred$cnt_pi, x) #shade of counts predictions
+}
+
+p.male <- predict_lambda_counts(model, d.predict.male)
+p.female <- predict_lambda_counts(model, d.predict.female)
+
+
+idx.male <- d$female!=1
+idx.female <- d$female==1
+plot(d$log_damage_norm_c[idx.male], d$deaths[idx.male], xlim=range(log_damage_seq), pch=16, col='blue', ylim=range(d$deaths))
+points(d$damage_norm_c[idx.female], d$deaths[idx.female], pch=16, col='red')
+plot_lambda_cnt(log_damage_seq, p.male, 'blue')
+plot_lambda_cnt(log_damage_seq, p.female, 'red')
+```
+With log scale of damage there is no need for min_pressure variable. Model becomes more accurate in predictions.
+According to coefficients it's only the interaction of feminity and log(damage_norm) that really matters.
+
+### 11H5.
+One hypothesis from developmental psychology, usually attributed to Carol Gilligan, proposes that women and men have different average tendencies in moral reasoning. Like most hypotheses in social psychology, it is merely descriptive. The notion is that women are more concerned with care (avoiding harm), while men are more concerned with justice and rights. Culture-bound nonsense? Yes. Descriptively accurate? Maybe. 
+Evaluate this hypothesis, using the Trolley data, supposing that contact provides a proxy for physical harm. Are women more or less bothered by contact than a remen,inthesedata?Figureout the model(s) that is needed to address this question.
+```{r}
+library(dplyr)
+data("Trolley")
+d <- Trolley
+str(d)
+
+# quick look through the visualisation
+d %>% filter(contact==1) %>% ggplot( aes(x=as.factor(response), group=as.factor(male), fill=as.factor(male))) + 
+  geom_bar(aes(y=..prop..), position = "dodge") + 
+  ggtitle("Probabiliy of response per gender for questions that involves contact") + theme_bw()
+
+```
+Plot illustrates that women tend to have lower proportion of answers rated as 6 or 7 
+We are interested in checking how gender influences decision.
+We expect that women have more responses that will qualify story as immoral when contact is included.
+Let's use the best model from the chapter and add gender variable to it for testing the hypothesis.
+```{r}
+# best model from the chapter
+m11h5.base <- map( 
+  alist(
+    response ~ dordlogit( phi , c(a1,a2,a3,a4,a5,a6) ) ,
+    phi <- bA*action + bI*intention + bC*contact + bAI*action*intention + bCI*contact*intention,
+    c(bA,bI,bC,bAI,bCI) ~ dnorm(0,10),
+    c(a1,a2,a3,a4,a5,a6) ~ dnorm(0,10)
+  ) ,
+  data=d ,
+  start=list(a1=-1.9,a2=-1.2,a3=-0.7,a4=0.2,a5=0.9,a6=1.8) )
+precis(m11h5.base)
+```
+```{r}
+# model that contains gender and gender vs contact interaction
+m11h5.f <- map( 
+  alist(
+    response ~ dordlogit( phi , c(a1,a2,a3,a4,a5,a6) ) ,
+    phi <- bA*action + bI*intention + bC*contact + 
+      bAI*action*intention + bCI*contact*intention + bF*(1-male) +
+      bFC*(1-male)*contact,
+    c(bA,bI,bC,bAI,bCI,bFC,bF) ~ dnorm(0,10),
+    c(a1,a2,a3,a4,a5,a6) ~ dnorm(0,10)
+  ) ,
+  data=d ,
+  start=list(a1=-1.9,a2=-1.2,a3=-0.7,a4=0.2,a5=0.9,a6=1.8) 
+)
+precis(m11h5.f)
+```
+```{r}
+# model that contains only gender vs contact interaction
+m11h5.fc <- map( 
+  alist(
+    response ~ dordlogit( phi , c(a1,a2,a3,a4,a5,a6) ) ,
+    phi <- bA*action + bI*intention + bC*contact + 
+           bAI*action*intention + bCI*contact*intention +
+           bFC*(1-male)*contact,
+    c(bA,bI,bC,bAI,bCI,bFC) ~ dnorm(0,10),
+    c(a1,a2,a3,a4,a5,a6) ~ dnorm(0,10)
+  ) ,
+  data=d ,
+  start=list(a1=-1.9,a2=-1.2,a3=-0.7,a4=0.2,a5=0.9,a6=1.8) 
+)
+precis(m11h5.fc)
+```
+```{r}
+(cmp <- compare(m11h5.base, m11h5.fc, m11h5.f))
+plot(cmp)
+plot(coeftab(m11h5.base, m11h5.fc, m11h5.f))
+```
+According to WAIC comparison models with gender and gender-contact are better and takes all weights.
+Sign of coefficient near gender-contact interaction term changes across models, but it's correlated with the coefficient for gender variable, so let's examine changes in posterior distribution of predictions instead of coefficients
+
+visualisation of distrubution shift due to gender
+```{r}
+post <- extract.samples( m11h5.f )
+str(post)
+
+plot(1, 1, type="n", xlab="gender==female", ylab="probability", xlim=c(0,1) , ylim=c(0,1) , xaxp=c(0,1,1) , yaxp=c(0,1,2) )
+abline(h=c(0,1), lty=2, col='blue')
+
+kI <- 0 # value of intention
+kA <- 0 # value for action 
+kC <- 1 # value for contact
+kF <- c(0,1)# values of gender==female flag to calculate over
+for ( s in 1:100 ) {
+  p <- post[s,]
+  ak <- as.numeric(p[1:6])
+  phi <- p$bA*kA + p$bI*kI + p$bC*kC + p$bAI*kA*kI + p$bCI*kC*kI + p$bF*kF + p$bFC*kF*kC
+  pk <- pordlogit( 1:6 , a=ak , phi=phi )
+  for ( i in 1:6 )
+    lines( kF , pk[,i] , col=col.alpha(rangi2,0.1) )
+}
+mtext( concat( "action=",kA,", contact=",kC,", intention=",kI ) )
+
+# calculate phi for all posterior samples for male
+kF <- 0
+post$phi_m <- with(post, bA*kA + bI*kI + bC*kC + bAI*kA*kI + bCI*kC*kI + bF*kF + bFC*kF*kC)
+# calculate phi for all posterior samples for female
+kF <- 1
+post$phi_f <- with(post, bA*kA + bI*kI + bC*kC + bAI*kA*kI + bCI*kC*kI + bF*kF + bFC*kF*kC)
+
+n <- nrow(post)
+a.mx = data.matrix(select(post, a1:a6))
+# calculate mean cumulative and per response probabilities from all posterior sample
+# male
+p_m <- sapply(1:n, function(idx) pordlogit(1:6 , a=a.mx[idx,] , phi=post$phi_m[idx] )  )
+p_m <- apply(p_m, 1, mean)
+p_m <- c(p_m,1)
+cp_m <- p_m
+p_m <- p_m-c(0,p_m)[1:7]
+# female
+p_f <- sapply(1:n, function(idx) pordlogit(1:6 , a=a.mx[idx,] , phi=post$phi_f[idx] )  )
+p_f <- apply(p_f, 1, mean)
+p_f <- c(p_f,1)
+cp_f <- p_f
+p_f <- p_f-c(0,p_f)[1:7]
+# add values to the plot
+text(1, cp_f-0.04, sprintf("%3.2f",p_f))
+text(0, cp_m-0.04, sprintf("%3.2f",p_m))
+```
+From the plot we see that females tend to have a larger proportion of responses equal to 1, 2 or 3 and smaller proportion of responses equal to 5 or 6. It looks as the data supports the hypothesis.
+
+### 11H6.
+The data in data(Fish) are records of visits to a national park. See ?Fish for details. The question of interest is how many fish an average visitor takes per hour, when fishing. The problem is that not everyone tried to fish, so the fish_caught numbers are zero-inflated. As with the monks example in the chapter, there is a process that determines who is fishing (working) and another process that determines fish per hour (manuscripts per day), conditional on fishing (working). We want to model both. Otherwise we’ll end up with an underestimate of rate of fish extraction from the park. You will model these data using zero-inflated Poisson GLMs. Predict fish_caught as a function of any of the other variables you think are relevant. One thing you must do, however, is use a proper Poisson offset/exposure in the Poisson portion of the zero-inflated model. Then use the hours variable to construct the offset. This will adjust the model for the differing amount of time individuals spent in the park.
+```{r}
+data("Fish")
+d <- Fish
+str(d)
+
+m11h6.base <- map(alist(
+  fish_caught ~ dzipois(p, lambda),
+  logit(p) <-  ap,
+  log(lambda) <- log(hours) + al,
+  ap ~ dnorm(0,10),
+  al ~ dnorm(0,10)
+), data=d)
+precis(m11h6.base)
+postcheck(m11h6.base, window=250 )
+```
+```{r}
+logistic(-0.75) # probability of not fishing is 0.32
+exp(-0.14) # avg number of caught fish per hour when fishing is 0.87 vs. mean(d$fish_caught/d$hours)=1.1
+```
+
+```{r}
+m11h6 <- map(alist(
+  fish_caught ~ dzipois(p, lambda),
+  logit(p) <-  ap + bp_c*camper + bp_p*persons + bp_nchd*child,
+  log(lambda) <- log(hours) + al + bl_lb*livebait + bl_c*camper + bl_p*persons + bl_nchd*child,
+  ap ~ dnorm(0,10),
+  al ~ dnorm(0,10),
+  c(bp_c, bp_p, bp_nchd) ~ dnorm(0,2),
+  c(bl_lb, bl_c, bl_p, bl_nchd) ~ dnorm(0,2)
+), data=d)
+precis(m11h6)
+postcheck(m11h6, window=250 )
+pairs(m11h6)
+```
+```{r}
+m11h6.no.child <- map(alist(
+  fish_caught ~ dzipois(p, lambda),
+  logit(p) <-  ap + bp_c*camper + bp_p*persons,
+  log(lambda) <- log(hours) + al + bl_lb*livebait + bl_c*camper + bl_p*persons,
+  ap ~ dnorm(0,10),
+  al ~ dnorm(0,10),
+  c(bp_c, bp_p, bp_nchd) ~ dnorm(0,2),
+  c(bl_lb, bl_c, bl_p, bl_nchd) ~ dnorm(0,2)
+), data=d)
+precis(m11h6.no.child)
+```
+```{r}
+(cmp <- compare(m11h6.base, m11h6, m11h6.no.child))
+plot(cmp)
+```
+Adding child to the model has almost no influence on WAIC.
+```{r}
+# compare to stan model
+m11h6.s <- map2stan(alist(
+  fish_caught ~ dzipois(p, lambda),
+  logit(p) <-  ap + bp_c*camper + bp_p*persons + bp_nchd*child,
+  log(lambda) <- log(hours) + al + bl_lb*livebait + bl_c*camper + bl_p*persons + bl_nchd*child,
+  ap ~ dnorm(0,10),
+  al ~ dnorm(0,10),
+  c(bp_c, bp_p, bp_nchd) ~ dnorm(0,2),
+  c(bl_lb, bl_c, bl_p, bl_nchd) ~ dnorm(0,2)
+), data=d)
+precis(m11h6.s)
+
+plot(coeftab(m11h6, m11h6.s))
+```
+Stan model gives the same results, so can proceed with MAP.
+
+Let's chceck the predictions model makes:
+```{r}
+model <- m11h6.no.child
+d.predict <- data.frame(
+  hours=1,
+  livebait=c(0,1,0,1),
+  camper=c(0,0,1,1),
+  persons=c(1,1,1,1),
+  child=c(0,0,0,0)
+)
+lambda.sample <- link(model, data = d.predict)
+lambda.avg <- apply(lambda.sample$lambda, 2, mean )
+lambda.pi <- apply(lambda.sample$lambda, 2, PI )
+
+p.avg <- apply(lambda.sample$p, 2, mean )
+p.pi <- apply(lambda.sample$p, 2, PI )
+
+count.sample <- sim(model, data = d.predict)
+count.avg <- apply(count.sample, 2, mean )
+count.pi <- apply(count.sample, 2, PI )
+
+d.predict$lambda <- lambda.avg
+d.predict$p <- p.avg
+d.predict$cnt <- count.avg
+
+d.predict
+```
+Group with camper has more chances to start fishing, but lower number of caught fishes per hour, that's counterfactual. I suspect that there is some correlation inside the model. 
+As expected, a group that uses livebait has larger expected number of caught fishes per hour.
+

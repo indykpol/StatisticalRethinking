@@ -1,0 +1,120 @@
+---
+title: "Chapter 10 examples"
+output: html_notebook
+---
+
+```{r}
+library(rethinking)
+```
+### Ordered categorical outcomes
+```{r}
+data(Trolley)
+d <- Trolley
+```
+
+```{r}
+m11.1 <- map( alist(
+	response ~ dordlogit(phi,c(a1,a2,a3,a4,a5,a6)),
+	phi <- 0, c(a1,a2,a3,a4,a5,a6) ~ dnorm(0,10) ),
+	data=d ,
+	start=list(a1=-2,a2=-1,a3=0,a4=1,a5=2,a6=2.5) )
+```
+```{r}
+precis(m11.1)
+```
+```{r}
+logistic(coef(m11.1))
+```
+```{r}
+m11.2 <- map(
+	alist(
+		response ~ dordlogit(phi,c(a1,a2,a3,a4,a5,a6)),
+		phi <- bA*action+bI*intention+bC*contact,
+		c(bA,bI,bC) ~ dnorm(0,10),
+		c(a1,a2,a3,a4,a5,a6) ~ dnorm(0,10)
+	) ,
+	data=d , 
+	start=list(a1=-1.9,a2=-1.2,a3=-0.7,a4=0.2,a5=0.9,a6=1.8) )
+```
+```{r}
+m11.3 <- map(
+	alist(
+		response ~ dordlogit(phi,c(a1,a2,a3,a4,a5,a6)),
+		phi <- bA*action+bI*intention+bC*contact+ bAI*action*intention+bCI*contact*intention,
+		c(bA,bI,bC,bAI,bCI) ~ dnorm(0,10),
+		c(a1,a2,a3,a4,a5,a6) ~ dnorm(0,10)
+	) ,
+	data=d ,
+	start=list(a1=-1.9,a2=-1.2,a3=-0.7,a4=0.2,a5=0.9,a6=1.8) )
+```
+```{r}
+coeftab(m11.1, m11.2, m11.3)
+```
+```{r}
+compare(m11.1, m11.2, m11.3, refresh = 0.1)
+```
+
+### Zero-inflated Poisson
+```{r}
+# define parameters of simulation
+prob_drink <- 0.2 # 20% of days
+rate_work<-1 #average1manuscriptperday 
+
+#sampleoneyearofproduction 
+N <- 365 
+
+# simulate days monks drink
+drink <- rbinom( N , 1 , prob_drink ) 
+
+#simulatemanuscriptscompleted 
+y <- (1-drink)*rpois( N , rate_work )
+```
+
+```{r}
+simplehist(y,xlab="manuscriptscompleted",lwd=4) 
+zeros_drink <- sum(drink) 
+zeros_work <- sum(y==0 & drink==0) 
+zeros_total <- sum(y==0) 
+lines(c(0,0),c(zeros_work,zeros_total),lwd=4,col=rangi2)
+```
+```{r}
+m11.4 <- map(
+	alist(
+		y ~ dzipois( p , lambda ),
+		logit(p) <- ap,
+		log(lambda) <- al,
+		ap ~ dnorm(0,1),
+		al ~ dnorm(0,10) ), 
+	data=list(y=y) )
+precis(m11.4)
+logistic(-0.93)
+exp(0.06)
+```
+
+### Over-dispersed outcomes - Beta-Binomial
+Mixtures vs Multilevel Models
+
+```{r}
+data(UCBadmit)
+d <- UCBadmit
+m11.5 <- map2stan(
+	alist(
+		admit~dbetabinom(applications,pbar,theta),
+		logit(pbar) <- a,
+		a ~ dnorm(0,2),
+		theta ~ dexp(1) ),
+	data=d, 
+	constraints=list(theta="lower=0"), 
+	start=list(theta=3), iter=4000,warmup=1000,chains=2,cores=2)
+precis(m11.5)
+```
+```{r}
+post <- extract.samples(m11.5)
+quantile(logistic(post$a),c(0.025,0.5,0.975))
+```
+```{r}
+postcheck(m11.5)
+```
+
+### Negative-Binomial or Gamma-Poisson
+
